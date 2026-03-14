@@ -707,10 +707,27 @@
   </div>
 
   <!-- Save bar -->
-  <div style="position:sticky;bottom:0;background:var(--bg);border-top:0.5px solid var(--border);padding:14px 0;margin-top:32px;display:flex;align-items:center;gap:12px">
+  <div style="position:sticky;bottom:0;background:var(--bg);border-top:0.5px solid var(--border);padding:14px 0;margin-top:32px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
     <button class="save-btn" onclick="saveMonth()">Save this month</button>
     <span class="save-status" id="save-status">Saved!</span>
-    <span style="font-size:12px;color:var(--hint);margin-left:auto">Data stored in your browser</span>
+    <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button onclick="exportData()" style="background:transparent;border:0.5px solid rgba(255,255,255,0.2);color:#7a8394;border-radius:8px;padding:7px 14px;font-family:'Sora',sans-serif;font-size:12px;cursor:pointer;transition:all .15s" onmouseover="this.style.color='#e8eaed'" onmouseout="this.style.color='#7a8394'">Export backup (.json)</button>
+      <button onclick="document.getElementById('import-file').click()" style="background:transparent;border:0.5px solid rgba(255,255,255,0.2);color:#7a8394;border-radius:8px;padding:7px 14px;font-family:'Sora',sans-serif;font-size:12px;cursor:pointer;transition:all .15s" onmouseover="this.style.color='#e8eaed'" onmouseout="this.style.color='#7a8394'">Import backup</button>
+      <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(event)">
+      <span style="font-size:11px;color:var(--hint)">v2 · data in browser</span>
+    </div>
+  </div>
+
+  <!-- Import confirmation modal (faux viewport pattern) -->
+  <div id="import-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:999;align-items:center;justify-content:center">
+    <div style="background:var(--bg2);border:0.5px solid var(--border2);border-radius:var(--radius);padding:24px;max-width:380px;width:90%;margin:auto">
+      <div style="font-size:15px;font-weight:500;margin-bottom:8px">Import backup?</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:20px">This will merge the backup data with your current data. Months already saved will be overwritten by the backup version.</div>
+      <div style="display:flex;gap:10px">
+        <button id="import-confirm" style="background:var(--accent);color:#0d0f12;border:none;border-radius:8px;padding:9px 18px;font-family:'Sora',sans-serif;font-size:13px;font-weight:600;cursor:pointer;flex:1">Yes, import</button>
+        <button onclick="document.getElementById('import-modal').style.display='none'" style="background:var(--bg3);border:0.5px solid var(--border2);color:var(--text);border-radius:8px;padding:9px 18px;font-family:'Sora',sans-serif;font-size:13px;cursor:pointer;flex:1">Cancel</button>
+      </div>
+    </div>
   </div>
 
 </div>
@@ -1096,6 +1113,55 @@ function renderHistCharts(labels, rates, cumInv) {
     data: { labels, datasets: [{ label: '₹k invested', data: cumInv, borderColor: '#60a5fa', backgroundColor: 'rgba(96,165,250,0.08)', borderWidth: 2, pointRadius: 3, tension: 0.4, fill: true }] },
     options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, ticks: { callback: v => '₹'+v+'k', font:{size:10}, color:'#7a8394' } } } }
   });
+}
+
+// ── Export ─────────────────────────────────────────────────────
+function exportData() {
+  const history = JSON.parse(localStorage.getItem('mlt-history') || '{}');
+  const keys = Object.keys(history);
+  if (!keys.length) { alert('No data saved yet. Save at least one month first.'); return; }
+  const payload = { version: 2, exportedAt: new Date().toISOString(), history };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'money-tracker-backup-' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ── Import ─────────────────────────────────────────────────────
+let pendingImportData = null;
+
+function importData(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const parsed = JSON.parse(e.target.result);
+      if (!parsed.history) { alert('Invalid backup file. Please use a file exported from this tracker.'); return; }
+      pendingImportData = parsed.history;
+      const modal = document.getElementById('import-modal');
+      modal.style.display = 'flex';
+      document.getElementById('import-confirm').onclick = function() {
+        const existing = JSON.parse(localStorage.getItem('mlt-history') || '{}');
+        const merged = { ...existing, ...pendingImportData };
+        localStorage.setItem('mlt-history', JSON.stringify(merged));
+        modal.style.display = 'none';
+        pendingImportData = null;
+        event.target.value = '';
+        loadMonth();
+        renderHistory();
+        const st = document.getElementById('save-status');
+        st.textContent = 'Imported!';
+        st.style.opacity = '1';
+        setTimeout(() => { st.style.opacity = '0'; st.textContent = 'Saved!'; }, 2500);
+      };
+    } catch(err) {
+      alert('Could not read the file. Make sure it is a valid .json backup.');
+    }
+  };
+  reader.readAsText(file);
 }
 
 // ── Init ───────────────────────────────────────────────────────
